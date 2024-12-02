@@ -4,8 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Small Action Company - Reclaim & Create</title>
+    <!-- Add YouTube iframe API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
     <style>
         /* ... Previous styles remain the same ... */
+
+        #youtubePlayer {
+            display: none;
+        }
 
         .music-controls {
             position: fixed;
@@ -45,6 +51,7 @@
             box-shadow: 0 0 20px rgba(0,0,0,0.2);
             z-index: 1000;
             display: none;
+            min-width: 300px;
         }
 
         #adminPanel.show {
@@ -79,6 +86,7 @@
             padding: 0.5rem 1rem;
             border-radius: 5px;
             cursor: pointer;
+            margin: 0.5rem;
         }
 
         .volume-control {
@@ -90,16 +98,25 @@
         #volumeSlider {
             width: 100px;
         }
+
+        .current-song {
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            word-break: break-all;
+        }
     </style>
 </head>
 <body>
     <!-- Previous HTML content remains the same -->
 
+    <!-- Add a hidden YouTube player -->
+    <div id="youtubePlayer"></div>
+
     <div class="music-controls">
         <button id="toggleMusic">🎵 Play/Pause</button>
         <div class="volume-control">
             <span>🔊</span>
-            <input type="range" id="volumeSlider" min="0" max="1" step="0.1" value="0.5">
+            <input type="range" id="volumeSlider" min="0" max="100" step="1" value="50">
         </div>
         <button id="adminLogin">Admin</button>
     </div>
@@ -109,16 +126,47 @@
     <div id="adminPanel">
         <h3>Admin Panel</h3>
         <input type="password" id="adminPassword" placeholder="Enter admin password">
-        <input type="text" id="newSongUrl" placeholder="New song URL">
+        <input type="text" id="newSongUrl" placeholder="Paste YouTube URL">
+        <div class="current-song" id="currentSongDisplay"></div>
         <button id="updateSong">Update Song</button>
         <button id="closeAdmin">Close</button>
     </div>
 
     <script>
-        // Previous JavaScript remains the same
+        // YouTube player variables
+        let player;
+        let isPlaying = false;
 
-        // Music Player functionality
-        const audio = new Audio();
+        // Function to extract YouTube video ID
+        function getYouTubeVideoId(url) {
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[2].length === 11) ? match[2] : null;
+        }
+
+        // Initialize YouTube player
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('youtubePlayer', {
+                height: '0',
+                width: '0',
+                videoId: localStorage.getItem('currentSongId') || '',
+                playerVars: {
+                    'autoplay': 0,
+                    'controls': 0,
+                },
+                events: {
+                    'onReady': onPlayerReady,
+                }
+            });
+        }
+
+        function onPlayerReady(event) {
+            // Set initial volume
+            player.setVolume(50);
+            updateCurrentSongDisplay();
+        }
+
+        // UI Elements
         const toggleMusicBtn = document.getElementById('toggleMusic');
         const volumeSlider = document.getElementById('volumeSlider');
         const adminLoginBtn = document.getElementById('adminLogin');
@@ -128,36 +176,29 @@
         const updateSongBtn = document.getElementById('updateSong');
         const adminPassword = document.getElementById('adminPassword');
         const newSongUrl = document.getElementById('newSongUrl');
-
-        // Initialize audio settings
-        audio.volume = 0.5;
-
-        // Load the current week's song
-        function loadWeeklySong() {
-            const songUrl = localStorage.getItem('currentSong');
-            if (songUrl) {
-                audio.src = songUrl;
-            }
-        }
+        const currentSongDisplay = document.getElementById('currentSongDisplay');
 
         // Toggle music play/pause
         toggleMusicBtn.addEventListener('click', () => {
-            if (audio.paused) {
-                audio.play();
+            if (!isPlaying) {
+                player.playVideo();
+                isPlaying = true;
             } else {
-                audio.pause();
+                player.pauseVideo();
+                isPlaying = false;
             }
         });
 
         // Volume control
         volumeSlider.addEventListener('input', (e) => {
-            audio.volume = e.target.value;
+            player.setVolume(e.target.value);
         });
 
         // Admin panel functionality
         adminLoginBtn.addEventListener('click', () => {
             adminPanel.classList.add('show');
             overlay.classList.add('show');
+            updateCurrentSongDisplay();
         });
 
         closeAdminBtn.addEventListener('click', () => {
@@ -165,19 +206,36 @@
             overlay.classList.remove('show');
         });
 
+        function updateCurrentSongDisplay() {
+            const currentUrl = localStorage.getItem('currentSongUrl');
+            currentSongDisplay.textContent = currentUrl ? 
+                `Current song: ${currentUrl}` : 
+                'No song currently set';
+        }
+
         // Update song (with simple password protection)
         updateSongBtn.addEventListener('click', () => {
             const correctPassword = 'admin123'; // Change this to your desired password
             if (adminPassword.value === correctPassword) {
-                if (newSongUrl.value) {
-                    localStorage.setItem('currentSong', newSongUrl.value);
+                const url = newSongUrl.value;
+                const videoId = getYouTubeVideoId(url);
+                
+                if (videoId) {
+                    localStorage.setItem('currentSongId', videoId);
+                    localStorage.setItem('currentSongUrl', url);
                     localStorage.setItem('songUpdateDate', new Date().toISOString());
-                    loadWeeklySong();
+                    
+                    // Load new video
+                    player.loadVideoById(videoId);
+                    player.pauseVideo(); // Pause it initially
+                    isPlaying = false;
+                    
+                    updateCurrentSongDisplay();
                     alert('Song updated successfully!');
                     adminPanel.classList.remove('show');
                     overlay.classList.remove('show');
                 } else {
-                    alert('Please enter a valid song URL');
+                    alert('Please enter a valid YouTube URL');
                 }
             } else {
                 alert('Incorrect password');
@@ -194,14 +252,12 @@
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                 
                 if (diffDays >= 7) {
-                    // Alert admin that it's time to update the song
                     alert('Time to update the weekly song!');
                 }
             }
         }
 
         // Initialize
-        loadWeeklySong();
         checkWeeklyUpdate();
         
         // Check for updates daily
